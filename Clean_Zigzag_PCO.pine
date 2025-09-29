@@ -1,0 +1,115 @@
+//@version=5
+indicator("Clean Zigzag PCO", "Zigzag PCO", overlay=true, max_lines_count=50, max_labels_count=25)
+
+// Input Settings
+zigzag_percent = input.float(5.0, "Zigzag Percentage", minval=1.0, maxval=50.0, step=0.5)
+pivot_length = input.int(10, "Pivot Length", minval=5, maxval=50)
+show_labels = input.bool(true, "Show Price Labels")
+show_percentage = input.bool(true, "Show Percentage Change")
+
+// Colors
+up_color = color.lime
+down_color = color.red
+up_label_color = color.new(color.green, 20)
+down_label_color = color.new(color.red, 20)
+
+// Variables
+var float last_pivot_price = na
+var int last_pivot_bar = na
+var bool last_was_high = na
+
+// Calculate percentage change
+get_percentage(price1, price2) =>
+    (price2 - price1) / price1 * 100
+
+// Calculate pivot points
+pivot_high = ta.pivothigh(high, pivot_length, pivot_length)
+pivot_low = ta.pivotlow(low, pivot_length, pivot_length)
+
+// Process new pivot high
+if not na(pivot_high)
+    current_bar = bar_index[pivot_length]
+
+    // Check if this forms a valid zigzag move
+    is_valid_pivot = false
+    if na(last_pivot_price)
+        is_valid_pivot := true
+    else if not last_was_high and math.abs(get_percentage(last_pivot_price, pivot_high)) >= zigzag_percent
+        is_valid_pivot := true
+
+    if is_valid_pivot
+        // Draw zigzag line
+        if not na(last_pivot_price) and not na(last_pivot_bar)
+            pct_change = get_percentage(last_pivot_price, pivot_high)
+            line_color = pct_change > 0 ? up_color : down_color
+
+            line.new(last_pivot_bar, last_pivot_price, current_bar, pivot_high,
+                     color=line_color, width=2, style=line.style_solid)
+
+        // Create label
+        if show_labels
+            label_text = str.tostring(pivot_high, format.mintick)
+
+            if show_percentage and not na(last_pivot_price)
+                pct_change = get_percentage(last_pivot_price, pivot_high)
+                label_text += "\n(" + str.tostring(pct_change, "#.##") + "%)"
+
+            label.new(current_bar, pivot_high,
+                     label_text,
+                     style=label.style_label_down,
+                     color=down_label_color,
+                     textcolor=color.white,
+                     size=size.small)
+
+        // Update tracking variables
+        last_pivot_price := pivot_high
+        last_pivot_bar := current_bar
+        last_was_high := true
+
+// Process new pivot low
+if not na(pivot_low)
+    current_bar = bar_index[pivot_length]
+
+    // Check if this forms a valid zigzag move
+    is_valid_pivot = false
+    if na(last_pivot_price)
+        is_valid_pivot := true
+    else if last_was_high and math.abs(get_percentage(last_pivot_price, pivot_low)) >= zigzag_percent
+        is_valid_pivot := true
+
+    if is_valid_pivot
+        // Draw zigzag line
+        if not na(last_pivot_price) and not na(last_pivot_bar)
+            pct_change = get_percentage(last_pivot_price, pivot_low)
+            line_color = pct_change < 0 ? down_color : up_color
+
+            line.new(last_pivot_bar, last_pivot_price, current_bar, pivot_low,
+                     color=line_color, width=2, style=line.style_solid)
+
+        // Create label
+        if show_labels
+            label_text = str.tostring(pivot_low, format.mintick)
+
+            if show_percentage and not na(last_pivot_price)
+                pct_change = get_percentage(last_pivot_price, pivot_low)
+                label_text += "\n(" + str.tostring(pct_change, "#.##") + "%)"
+
+            label.new(current_bar, pivot_low,
+                     label_text,
+                     style=label.style_label_up,
+                     color=up_label_color,
+                     textcolor=color.white,
+                     size=size.small)
+
+        // Update tracking variables
+        last_pivot_price := pivot_low
+        last_pivot_bar := current_bar
+        last_was_high := false
+
+// Alerts
+alertcondition(not na(pivot_high), title="New Zigzag High", message="New Zigzag High: {{plot_0}}")
+alertcondition(not na(pivot_low), title="New Zigzag Low", message="New Zigzag Low: {{plot_0}}")
+
+// Plots for alerts
+plot(pivot_high, title="High", display=display.none)
+plot(pivot_low, title="Low", display=display.none)
