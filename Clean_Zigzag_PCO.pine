@@ -1,0 +1,206 @@
+//@version=5
+indicator("Clean Zigzag PCO", "Zigzag PCO", overlay=true, max_lines_count=500, max_labels_count=100, max_boxes_count=100)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// CLEAN ZIGZAG PCO - SIMPLE AND CLEAN PRICE ACTION INDICATOR
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+// Input Settings
+group_zigzag = "Zigzag Settings"
+zigzag_percent = input.float(3.0, "Zigzag Percentage", minval=0.1, maxval=20.0, step=0.1, group=group_zigzag)
+pivot_length = input.int(5, "Pivot Length", minval=1, maxval=20, group=group_zigzag)
+
+group_display = "Display Settings"
+show_zigzag_lines = input.bool(true, "Show Zigzag Lines", group=group_display)
+show_percentage_boxes = input.bool(true, "Show Percentage Boxes", group=group_display)
+show_channel_lines = input.bool(true, "Show Channel Lines", group=group_display)
+
+group_colors = "Colors"
+up_color = input.color(color.lime, "Up Move Color", group=group_colors)
+down_color = input.color(color.red, "Down Move Color", group=group_colors)
+up_box_color = input.color(color.new(color.green, 0), "Up Box Color", group=group_colors)
+down_box_color = input.color(color.new(color.red, 0), "Down Box Color", group=group_colors)
+channel_color = input.color(color.new(color.yellow, 50), "Channel Color", group=group_colors)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// VARIABLES
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+var float last_pivot_price = na
+var int last_pivot_bar = na
+var bool last_was_high = na
+var array<line> zigzag_lines = array.new<line>()
+var array<box> percentage_boxes = array.new<box>()
+var array<float> pivot_highs = array.new<float>()
+var array<float> pivot_lows = array.new<float>()
+var array<int> high_bars = array.new<int>()
+var array<int> low_bars = array.new<int>()
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// UTILITY FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+// Calculate percentage change
+get_percentage(price1, price2) =>
+    (price2 - price1) / price1 * 100
+
+// Clean old objects to prevent clutter
+cleanup_objects() =>
+    if array.size(zigzag_lines) > 50
+        old_line = array.shift(zigzag_lines)
+        line.delete(old_line)
+
+    if array.size(percentage_boxes) > 20
+        old_box = array.shift(percentage_boxes)
+        box.delete(old_box)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ZIGZAG CALCULATION
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+// Calculate pivot points
+pivot_high = ta.pivothigh(high, pivot_length, pivot_length)
+pivot_low = ta.pivotlow(low, pivot_length, pivot_length)
+
+// Process new pivot high
+if not na(pivot_high)
+    current_bar = bar_index[pivot_length]
+
+    // Check if this forms a valid zigzag move
+    is_valid_pivot = na(last_pivot_price) or
+                    (not last_was_high and math.abs(get_percentage(last_pivot_price, pivot_high)) >= zigzag_percent) or
+                    (last_was_high and pivot_high > last_pivot_price)
+
+    if is_valid_pivot
+        // Draw zigzag line
+        if show_zigzag_lines and not na(last_pivot_price) and not na(last_pivot_bar)
+            pct_change = get_percentage(last_pivot_price, pivot_high)
+            line_color = pct_change > 0 ? up_color : down_color
+
+            new_line = line.new(last_pivot_bar, last_pivot_price, current_bar, pivot_high,
+                               color=line_color, width=2, style=line.style_solid)
+            array.push(zigzag_lines, new_line)
+
+            // Create percentage box
+            if show_percentage_boxes and not na(last_pivot_price)
+                mid_bar = math.round((last_pivot_bar + current_bar) / 2)
+                mid_price = (last_pivot_price + pivot_high) / 2
+
+                box_color = pct_change > 0 ? up_box_color : down_box_color
+                text_color = pct_change > 0 ? color.white : color.white
+
+                pct_text = str.tostring(math.abs(pct_change), "#.##") + "%"
+                price_text = str.tostring(pivot_high, format.mintick)
+
+                new_box = box.new(mid_bar - 3, mid_price - (high - low) * 0.02,
+                                 mid_bar + 3, mid_price + (high - low) * 0.02,
+                                 border_color=box_color, bgcolor=box_color,
+                                 text=pct_text + "\n" + price_text,
+                                 text_color=text_color, text_size=size.small)
+                array.push(percentage_boxes, new_box)
+
+        // Store pivot data
+        array.push(pivot_highs, pivot_high)
+        array.push(high_bars, current_bar)
+        if array.size(pivot_highs) > 10
+            array.shift(pivot_highs)
+            array.shift(high_bars)
+
+        // Update tracking variables
+        last_pivot_price := pivot_high
+        last_pivot_bar := current_bar
+        last_was_high := true
+
+// Process new pivot low
+if not na(pivot_low)
+    current_bar = bar_index[pivot_length]
+
+    // Check if this forms a valid zigzag move
+    is_valid_pivot = na(last_pivot_price) or
+                    (last_was_high and math.abs(get_percentage(last_pivot_price, pivot_low)) >= zigzag_percent) or
+                    (not last_was_high and pivot_low < last_pivot_price)
+
+    if is_valid_pivot
+        // Draw zigzag line
+        if show_zigzag_lines and not na(last_pivot_price) and not na(last_pivot_bar)
+            pct_change = get_percentage(last_pivot_price, pivot_low)
+            line_color = pct_change < 0 ? down_color : up_color
+
+            new_line = line.new(last_pivot_bar, last_pivot_price, current_bar, pivot_low,
+                               color=line_color, width=2, style=line.style_solid)
+            array.push(zigzag_lines, new_line)
+
+            // Create percentage box
+            if show_percentage_boxes and not na(last_pivot_price)
+                mid_bar = math.round((last_pivot_bar + current_bar) / 2)
+                mid_price = (last_pivot_price + pivot_low) / 2
+
+                box_color = pct_change < 0 ? down_box_color : up_box_color
+                text_color = color.white
+
+                pct_text = str.tostring(math.abs(pct_change), "#.##") + "%"
+                price_text = str.tostring(pivot_low, format.mintick)
+
+                new_box = box.new(mid_bar - 3, mid_price - (high - low) * 0.02,
+                                 mid_bar + 3, mid_price + (high - low) * 0.02,
+                                 border_color=box_color, bgcolor=box_color,
+                                 text=pct_text + "\n" + price_text,
+                                 text_color=text_color, text_size=size.small)
+                array.push(percentage_boxes, new_box)
+
+        // Store pivot data
+        array.push(pivot_lows, pivot_low)
+        array.push(low_bars, current_bar)
+        if array.size(pivot_lows) > 10
+            array.shift(pivot_lows)
+            array.shift(low_bars)
+
+        // Update tracking variables
+        last_pivot_price := pivot_low
+        last_pivot_bar := current_bar
+        last_was_high := false
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// CHANNEL LINES
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+if show_channel_lines and array.size(pivot_highs) >= 2 and array.size(pivot_lows) >= 2
+    // Get last two highs
+    if array.size(pivot_highs) >= 2
+        last_high = array.get(pivot_highs, array.size(pivot_highs) - 1)
+        prev_high = array.get(pivot_highs, array.size(pivot_highs) - 2)
+        last_high_bar = array.get(high_bars, array.size(high_bars) - 1)
+        prev_high_bar = array.get(high_bars, array.size(high_bars) - 2)
+
+        // Draw upper channel line
+        line.new(prev_high_bar, prev_high, last_high_bar, last_high,
+                 color=channel_color, width=1, style=line.style_dashed, extend=extend.right)
+
+    // Get last two lows
+    if array.size(pivot_lows) >= 2
+        last_low = array.get(pivot_lows, array.size(pivot_lows) - 1)
+        prev_low = array.get(pivot_lows, array.size(pivot_lows) - 2)
+        last_low_bar = array.get(low_bars, array.size(low_bars) - 1)
+        prev_low_bar = array.get(low_bars, array.size(low_bars) - 2)
+
+        // Draw lower channel line
+        line.new(prev_low_bar, prev_low, last_low_bar, last_low,
+                 color=channel_color, width=1, style=line.style_dashed, extend=extend.right)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// CLEANUP
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+if barstate.islast
+    cleanup_objects()
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ═══════════════════════════════════════════════════════════════════════════════════════
+
+alertcondition(not na(pivot_high), title="New Zigzag High", message="New Zigzag High: {{plot_0}}")
+alertcondition(not na(pivot_low), title="New Zigzag Low", message="New Zigzag Low: {{plot_0}}")
+
+// Plots for alerts
+plot(pivot_high, title="High", display=display.none)
+plot(pivot_low, title="Low", display=display.none)
